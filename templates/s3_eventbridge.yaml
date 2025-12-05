@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 -> EventBridge -> SQS -> Lambda
+
+Resources:
+  MySourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-learning-bucket-12345
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: my-learning-queue
+
+  MyQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref MyQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt MyQueue.Arn
+
+  MyEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref MySourceBucket
+      Targets:
+        - Arn: !GetAtt MyQueue.Arn
+          Id: MyQueueTarget
+
+  MyFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: my-learning-function
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt MyFunctionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+          def handler(event, context):
+              print("Lambda started!")
+              for record in event['Records']:
+                  payload = record['body']
+                  print(f"Received message: {payload}")
+              return {"statusCode": 200}
+
+  MyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+
+  MyEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      EventSourceArn: !GetAtt MyQueue.Arn
+      FunctionName: !Ref MyFunction
+      Enabled: true

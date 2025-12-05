@@ -1,0 +1,5 @@
+PS C:\learning_cloudformation> aws configure --profile localstack
+AWS Access Key ID [****************test]: test
+AWS Secret Access Key [****************test]: test
+Default region name [us-east-1]: us-east-1
+Default output format [json]: json

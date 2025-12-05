@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 -> EventBridge -> SQS -> Lambda
+
+Resources:
+  # ------------------------------------------------------------
+  # 1. 発生源: S3バケット
+  # ------------------------------------------------------------
+  MySourceBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-learning-bucket-12345
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
+
+  # ------------------------------------------------------------
+  # 2. 受信場所: SQSキュー
+  # ------------------------------------------------------------
+  MyQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: my-learning-queue
+
+  # EventBridgeがSQSに書き込むのを許可するポリシー
+  MyQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref MyQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt MyQueue.Arn
+
+  # ------------------------------------------------------------
+  # 3. 配線: EventBridgeルール (S3 -> SQS)
+  # ------------------------------------------------------------
+  MyEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref MySourceBucket
+      Targets:
+        - Arn: !GetAtt MyQueue.Arn
+          Id: MyQueueTarget
+
+  # ------------------------------------------------------------
+  # 4. 処理担当: Lambda関数
+  # ------------------------------------------------------------
+MyFunction:  # 【論理ID】
+    # この設計図の中で使う「通称」
+    # 他の場所から「!Ref MyFunction」で呼び出すときに使用。
+
+    Type: AWS::Lambda::Function # 【リソースタイプ】
+    # 「何を作るか」の指定。「Lambda関数を作ってください」という意味
+
+    Properties: # 【設定内容】
+      # ここから下が具体的な設定（スペック）です。
+
+      FunctionName: my-learning-function
+      # 【物理ID】
+      # 実際にAWS（LocalStack）上に作られるときの名前。
+      # マネジメントコンソールやCLIで表示される。
+
+      Runtime: python3.9
+      # 【使用言語】
+
+      Handler: index.handler
+      # 【開始位置】
+      # 「プログラムのどこから読み始めたらいいか」の指示。
+      # 「indexというファイルの、handlerという関数を実行せよ」という意味。
+
+      Role: !GetAtt MyFunctionRole.Arn
+      # 【権限】
+      # 「このプログラムは、どの権限を使って動くか」の指定。
+      # 下の方で定義している「MyFunctionRole（IAMロール）」の住所（ARN）を
+      # !GetAttという命令で引っ張ってきている。
+
+Code:
+        ZipFile: |
+          # 【ソースコード本体】
+          # 本来は別ファイル（ZIP）にしてアップロードするのが正式。
+          # 「ZipFile: |」と書くことで
+          # YAMLの中に直接書き込むことが可能（インライン記述）。
+
+          import json
+          
+          def handler(event, context):
+              # event: 受け取ったデータ（今回はSQSからのメッセージ）が入る。
+              
+              print("★Lambdaが起動しました！★")
+              
+              # SQSからのメッセージは複数まとめて来ることもあるので、for文で回す
+              for record in event['Records']:
+                  
+                  # メッセージの本文（Body）を取り出す
+                  payload = record['body']
+                  
+                  # ログに出力する
+                  print(f"受け取ったメッセージ: {payload}")
+              
+              # 正常終了時
+              return {"statusCode": 200}
+
+  # Lambdaが使う権限（SQSを読む権限 + ログを出す権限）
+  MyFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole
+
+  # ------------------------------------------------------------
+  # 5. 接続: SQS -> Lambda (トリガー設定)
+  # ------------------------------------------------------------
+  MyEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      EventSourceArn: !GetAtt MyQueue.Arn
+      FunctionName: !Ref MyFunction
+      Enabled: true

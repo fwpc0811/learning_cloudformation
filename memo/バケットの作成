@@ -1,0 +1,5 @@
+aws cloudformation create-stack `
+    --stack-name my-stack `
+    --template-body file://templates/s3_eventbridge.yaml `
+    --endpoint-url=http://localhost:4566 `
+    --profile localstack
