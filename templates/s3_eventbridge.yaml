@@ -16,7 +16,7 @@ Parameters:
     Default: 60
 
 Resources:
-  # --- S3 (Security Settings Added) ---
+  # --- S3 ---
   MySourceBucket:
     Type: AWS::S3::Bucket
     Properties:
