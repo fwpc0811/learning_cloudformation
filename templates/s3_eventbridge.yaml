@@ -1,19 +1,63 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: S3 -> EventBridge -> SQS -> Lambda
 
+Parameters:
+  MyBatchSize:
+    Type: Number
+    Default: 5
+  MyParallelism:
+    Type: Number
+    Default: 2
+  MyLambdaTimeout:
+    Type: Number
+    Default: 10
+  MyVisibilityTimeout:
+    Type: Number
+    Default: 60
+
 Resources:
+  # --- S3 (Security Settings Added) ---
   MySourceBucket:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: my-learning-bucket-12345
+      
+      # 1. Block Public Access
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      
+      # 2. Encryption
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+              
+      # 3. Versioning
+      VersioningConfiguration:
+        Status: Enabled
+
       NotificationConfiguration:
         EventBridgeConfiguration:
           EventBridgeEnabled: true
 
+  # --- DLQ ---
+  MyDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: my-learning-dlq
+
+  # --- Main SQS ---
   MyQueue:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: my-learning-queue
+      VisibilityTimeout: !Ref MyVisibilityTimeout
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MyDLQ.Arn
+        maxReceiveCount: 3
 
   MyQueuePolicy:
     Type: AWS::SQS::QueuePolicy
@@ -28,6 +72,7 @@ Resources:
             Action: sqs:SendMessage
             Resource: !GetAtt MyQueue.Arn
 
+  # --- EventBridge ---
   MyEventRule:
     Type: AWS::Events::Rule
     Properties:
@@ -45,6 +90,7 @@ Resources:
         - Arn: !GetAtt MyQueue.Arn
           Id: MyQueueTarget
 
+  # --- Lambda ---
   MyFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -52,14 +98,20 @@ Resources:
       Runtime: python3.9
       Handler: index.handler
       Role: !GetAtt MyFunctionRole.Arn
+      Timeout: !Ref MyLambdaTimeout
+      ReservedConcurrentExecutions: !Ref MyParallelism
       Code:
         ZipFile: |
           import json
           def handler(event, context):
-              print("Lambda started!")
+              count = len(event['Records'])
+              print(f"Lambda started! Batch size: {count}")
               for record in event['Records']:
                   payload = record['body']
-                  print(f"Received message: {payload}")
+                  if "error" in payload:
+                      print("!!! ERROR DETECTED !!! Crashing...")
+                      raise Exception("Planned Failure")
+                  print(f"Success: {payload}")
               return {"statusCode": 200}
 
   MyFunctionRole:
@@ -79,7 +131,7 @@ Resources:
   MyEventSourceMapping:
     Type: AWS::Lambda::EventSourceMapping
     Properties:
-      BatchSize: 10
       EventSourceArn: !GetAtt MyQueue.Arn
       FunctionName: !Ref MyFunction
       Enabled: true
+      BatchSize: !Ref MyBatchSize

@@ -97,8 +97,58 @@ aws logs tail "/aws/lambda/my-learning-function" --endpoint-url=http://localhost
 以下のコマンドで環境を停止・削除します。
 
 ```powershell
+
+# スタックの削除
+aws cloudformation delete-stack --stack-name my-stack --endpoint-url=http://localhost:4566 --profile localstack
+
 # コンテナの停止
 docker-compose down
 ```
 
 
+
+# バッチサイズ実験
+```
+echo "Batch 1" > b1.txt
+echo "Batch 2" > b2.txt
+echo "Batch 3" > b3.txt
+echo "Batch 4" > b4.txt
+echo "Batch 5" > b5.txt
+```
+
+# 5連続アップロード (& はコマンド連結)
+```
+aws s3 cp b1.txt s3://my-learning-bucket-12345/b1.txt --endpoint-url=http://localhost:4566 --profile localstack ; aws s3 cp b2.txt s3://my-learning-bucket-12345/b2.txt --endpoint-url=http://localhost:4566 --profile localstack ; aws s3 cp b3.txt s3://my-learning-bucket-12345/b3.txt --endpoint-url=http://localhost:4566 --profile localstack ; aws s3 cp b4.txt s3://my-learning-bucket-12345/b4.txt --endpoint-url=http://localhost:4566 --profile localstack ; aws s3 cp b5.txt s3://my-learning-bucket-12345/b5.txt --endpoint-url=http://localhost:4566 --profile localstack
+```
+
+# バッチサイズが2以上（Batch size: 2）であれば、並列で動いている
+```
+2025-12-08T07:01:34.323000+00:00 2025/12/08/[$LATEST]0e761b7bb3298c7d88a37c85e243a7a6 Lambda started! Batch size: 2
+2025-12-08T07:01:34.323000+00:00 2025/12/08/[$LATEST]0e761b7bb3298c7d88a37c85e243a7a6 [1/2] Processing message: {"version": "0", "id": "708b8288-3573-475e-81b2-8eba2ea535e2", "detail-type": "Object Created", "source": "aws.s3", "account": "000000000000", "time": "2025-12-08T07:01:30Z", "region": "us-east-1", "resources": ["arn:aws:s3:::my-learning-bucket-12345"], "detail": {"version": "0", "bucket": {"name": "my-learning-bucket-12345"}, "object": {"key": "b1.txt", "size": 20, "etag": "32e803191d6866779d58fa80a6a33404", "sequencer": "0062E99A88DC407460"}, "request-id": "6d2fc328-8dc0-46e7-b395-cb8c734eabfa", "requester": "074255357339", "source-ip-address": "127.0.0.1", "reason": "PutObject"}}
+2025-12-08T07:01:34.323000+00:00 2025/12/08/[$LATEST]0e761b7bb3298c7d88a37c85e243a7a6 [2/2] Processing message: {"version": "0", "id": "2b9571f4-7034-468d-ac64-b689f9db15a8", "detail-type": "Object Created", "source": "aws.s3", "account": "000000000000", "time": "2025-12-08T07:01:31Z", "region": "us-east-1", "resources": ["arn:aws:s3:::my-learning-bucket-12345"], "detail": {"version": "0", "bucket": {"name": "my-learning-bucket-12345"}, "object": {"key": "b2.txt", "size": 20, "etag": "71172c661688f3a692617e3cc500bb8f", "sequencer": "0062E99A88DC407460"}, "request-id": "764fc971-edbb-4af6-afd4-a82569b2f8da", "requester": "074255357339", "source-ip-address": "127.0.0.1", "reason": "PutObject"}}
+```
+
+# エラー実験
+ファイル名に"error"が含まれるファイルをアップロードすると、エラーが出力されるようにする
+エラーが出力されて約1分後に再度lambdaが走る
+
+# エラー結果
+```
+2025-12-08T07:28:10.568000+00:00 2025/12/08/[$LATEST]c35d5ccaf204d313ed62e5ee95cec127 !!! ERROR DETECTED !!! Crashing intentionally...      
+    raise Exception("Planned Failure")in handlerTEST]c35d5ccaf204d313ed62e5ee95cec127 [ERROR] Exception: Planned Failure
+2025-12-08T07:28:10.568000+00:00 2025/12/08/[$LATEST]c35d5ccaf204d313ed62e5ee95cec127 END RequestId: 3691357f-4be2-4ab1-8f98-22657252e2e0   
+2025-12-08T07:28:10.568000+00:00 2025/12/08/[$LATEST]c35d5ccaf204d313ed62e5ee95cec127 REPORT RequestId: 3691357f-4be2-4ab1-8f98-22657252e2e0Duration: 2.03 ms       Billed Duration: 3 ms   Memory Size: 128 MB     Max Memory Used: 128 MB
+2025-12-08T07:29:13.393000+00:00 2025/12/08/[$LATEST]c35d5ccaf204d313ed62e5ee95cec127 START RequestId: 81715e34-b635-4572-95b2-8edb9a3ab7ab Version: $LATEST
+2025-12-08T07:29:13.393000+00:00 2025/12/08/[$LATEST]c35d5ccaf204d313ed62e5ee95cec127 Lambda started! Batch size: 1
+```
+
+# 3回エラーでDLQに行く
+```
+PS C:\learning_cloudformation> aws sqs get-queue-attributes --queue-url http://localhost:4566/000000000000/my-learning-dlq --attribute-names
+ ApproximateNumberOfMessages --endpoint-url=http://localhost:4566 --profile localstack
+{
+    "Attributes": {
+        "ApproximateNumberOfMessages": "1"
+    }
+}
+```
