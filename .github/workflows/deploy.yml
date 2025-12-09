@@ -1,0 +1,56 @@
+name: CD (Deploy)
+
+on:
+  push:
+    branches: [ develop ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Start LocalStack
+        uses: LocalStack/setup-localstack@v0.2.2
+        with:
+          image-tag: 'latest'
+          install-awslocal: 'true'
+
+      # --- デプロイプロセス (本番相当の手順) ---
+      
+      - name: Deploy Infrastructure
+        run: |
+          echo "Deploying CloudFormation Infra..."
+          awslocal cloudformation deploy \
+            --template-file infra.yaml \
+            --stack-name infra-stack
+
+      - name: Build Application
+        run: sam build
+
+      - name: Deploy Application
+        run: |
+          echo "Deploying Serverless Application..."
+          awslocal cloudformation package \
+            --template-file .aws-sam/build/template.yaml \
+            --s3-bucket my-learning-bucket-12345 \
+            --output-template-file packaged.yaml
+            
+          awslocal cloudformation deploy \
+            --template-file packaged.yaml \
+            --stack-name app-stack \
+            --capabilities CAPABILITY_IAM
+
+      - name: Verify Deployment
+        run: |
+          # 簡易チェック: Lambda関数が存在するか確認
+          awslocal lambda list-functions
+          echo "Deployment Completed Successfully!"

@@ -1,0 +1,23 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SAM Lambda Stack
+
+Resources:
+  MyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: my-learning-function
+      CodeUri: src/                  
+      Handler: app.handler           
+      Runtime: python3.9
+      Timeout: 10
+      ReservedConcurrentExecutions: 2
+      Role: !ImportValue MyFunctionRoleArn-Export
+      
+      Events:
+        MySQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !ImportValue MyQueueArn-Export
+            BatchSize: 5
+            Enabled: true

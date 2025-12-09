@@ -10,3 +10,16 @@ services:
     volumes:
       - "./volume:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
+  
+  integration-tests:
+    build: ./tests                
+    container_name: integration_tests
+    environment:
+      - TEST_ENDPOINT_URL=http://localstack:4566  
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_DEFAULT_REGION=us-east-1
+    volumes:
+      - ./tests:/app/tests        
+    depends_on:
+      - localstack                

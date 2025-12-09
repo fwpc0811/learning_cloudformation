@@ -1,0 +1,75 @@
+name: CI (Build & Test)
+
+on:
+  pull_request:
+    branches: [ develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. コードのチェックアウト
+      - uses: actions/checkout@v3
+
+      # 2. Python 3.9 のセットアップ (SAMビルド & テスト実行用)
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # 3. テスト用ライブラリのインストール
+      - name: Install Test Dependencies
+        run: |
+          pip install -r tests/requirements.txt
+
+      # 4. SAM CLI のセットアップ
+      - uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      # 5. LocalStack の起動
+      - name: Start LocalStack
+        uses: LocalStack/setup-localstack@v0.2.2
+        with:
+          image-tag: 'latest'
+          install-awslocal: 'true' # awslocalコマンドをインストール
+
+      # 6. インフラ層 (S3, SQS, IAM) のデプロイ
+      - name: Deploy Infra Stack
+        run: |
+          awslocal cloudformation deploy \
+            --template-file infra.yaml \
+            --stack-name infra-stack
+
+      # 7. アプリ層 (Lambda) のビルド
+      # GitHub RunnerにはPythonが入っているので --use-container は不要(高速)
+      - name: Build SAM App
+        run: sam build
+
+      # 8. アプリ層 (Lambda) のデプロイ
+      - name: Deploy App Stack
+        run: |
+          # コードをアップロードするバケットはinfra-stackで作ったものを使う
+          BUCKET_NAME="my-learning-bucket-12345"
+          
+          # パッケージング (ZIP化してS3へ)
+          awslocal cloudformation package \
+            --template-file .aws-sam/build/template.yaml \
+            --s3-bucket $BUCKET_NAME \
+            --output-template-file packaged.yaml
+          
+          # デプロイ (Lambda作成)
+          awslocal cloudformation deploy \
+            --template-file packaged.yaml \
+            --stack-name app-stack \
+            --capabilities CAPABILITY_IAM
+
+      # 9. 自動テスト (pytest) の実行
+      - name: Run Integration Test
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+          TEST_ENDPOINT_URL: http://localhost:4566
+        run: |
+          # -s オプションでログを表示
+          pytest tests/test_integration.py -s
