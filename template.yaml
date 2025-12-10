@@ -3,17 +3,31 @@ Transform: AWS::Serverless-2016-10-31
 Description: SAM Lambda Stack
 
 Resources:
+  MyCommonLayer:
+    Type: AWS::Serverless::LayerVersion
+
+    Properties:
+      LayerName: my-learning-layer
+      Description: Common utility functions
+      ContentUri: layers/my-layer
+      CompatibleRuntimes:
+        - python3.9
+      RetentionPolicy: Retain
+    Metadata:
+      BuildMethod: python3.9
+
   MyFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: my-learning-function
-      CodeUri: src/                  
-      Handler: app.handler           
+      FunctionName: my-learning-function-v2
+      CodeUri: src/
+      Handler: app.handler
       Runtime: python3.9
       Timeout: 10
       ReservedConcurrentExecutions: 2
       Role: !ImportValue MyFunctionRoleArn-Export
-      
+      Layers:
+        - !Ref MyCommonLayer
       Events:
         MySQSEvent:
           Type: SQS
