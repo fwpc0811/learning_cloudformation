@@ -1,23 +1,45 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: SAM Lambda Stack
+Description: Reproduce LocalStack Layer Failure (Standard S3 Upload Method)
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 10
+    Environment:
+      Variables:
+        AWS_ENDPOINT_URL: http://host.docker.internal:4566
 
 Resources:
+  # ---------------------------------------------------
+  # Layer定義
+  # AWSではこれでS3経由でデプロイされ /opt に展開されるが
+  # LocalStackでは展開されなかった
+  # ---------------------------------------------------
+  MySharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: reproduce-layer
+      Description: Layer that fails to mount in LocalStack
+      ContentUri: ./layer/
+      CompatibleRuntimes:
+        - python3.9
+      RetentionPolicy: Retain
+
+  # ---------------------------------------------------
+  # 関数定義
+  # ---------------------------------------------------
   MyFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: my-learning-function
-      CodeUri: src/                  
-      Handler: app.handler           
-      Runtime: python3.9
-      Timeout: 10
-      ReservedConcurrentExecutions: 2
-      Role: !ImportValue MyFunctionRoleArn-Export
-      
+      FunctionName: layer-test-function
+      CodeUri: ./src/
+      Handler: app.lambda_handler
+      Layers:
+        - !Ref MySharedLayer
       Events:
-        MySQSEvent:
-          Type: SQS
+        ApiEvent:
+          Type: Api
           Properties:
-            Queue: !ImportValue MyQueueArn-Export
-            BatchSize: 5
-            Enabled: true
+            Path: /layer-test
+            Method: get
